@@ -66,7 +66,8 @@ class ComfyClient:
 # -----------------------------
 # Build workflow
 # -----------------------------
-def create_workflow(image_name):
+def create_workflow(image_name, prompt_text):
+    
     return {
         "13": {
             "inputs": {"image": image_name},
@@ -76,7 +77,7 @@ def create_workflow(image_name):
 
         "14": {
             "inputs": {
-                "text": "Describe this image in detail.",
+                "text": prompt_text,
                 "model": "Qwen3-VL-4B-Instruct",
                 "quantization": "none",
                 "keep_model_loaded": False,
@@ -167,12 +168,15 @@ def extract_text(result_json):
 # -----------------------------
 # Public function
 # -----------------------------
-def describe_image(file_path):
+def describe_image(file_path, prompt_text=None):
     image_name = upload_image(file_path)
     if not image_name:
         return None
 
-    workflow = create_workflow(image_name)
+    if not prompt_text:
+       prompt_text = "Describe this image in details."
+
+    workflow = create_workflow(image_name, prompt_text)
     prompt_id = submit_workflow(workflow)
 
     if not prompt_id:
