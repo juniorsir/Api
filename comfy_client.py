@@ -25,6 +25,20 @@ def upload_image(file_path):
         return response.json().get("name")
     return None
 
+def upload_image(file_path):
+    url = f"{APP_URL}/upload/image"
+
+    with open(file_path, "rb") as f:
+        filename = os.path.basename(file_path)
+
+        files = {"video": (filename, f, "video/*")}
+        response = requests.post(url, files=files)
+
+    if response.status_code == 200:
+        return response.json().get("name")
+    return None
+    
+
 class ComfyClient:
     def __init__(self):
         self.app_url = APP_URL
