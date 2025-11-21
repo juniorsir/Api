@@ -10,7 +10,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Ensure APP_URL is defined, pointing to your ComfyUI instance
-APP_URL = os.environ.get("COMFYUI_URL", "https://6mecpjpojj3wov-8188.proxy.runpod.net/") 
+APP_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8080") 
 # Using an environment variable is better for deployment on Render.
 
 # --- Helper functions for ComfyUI API interaction ---
