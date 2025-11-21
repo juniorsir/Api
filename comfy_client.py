@@ -3,201 +3,159 @@ import uuid
 import time
 import json
 import os
-import asyncio
-import json
-import websockets
 
-APP_URL = "https://6mecpjpojj3wov-8188.proxy.runpod.net"
+# Ensure APP_URL is defined, pointing to your ComfyUI instance
+APP_URL = "https://6mecpjpojj3wov-8188.proxy.runpod.net" 
 
-# -----------------------------
-# Upload image to ComfyUI
-# -----------------------------
-def upload_image(file_path):
+# --- Helper functions for ComfyUI API interaction ---
+
+def upload_file(file_path):
+    """
+    Uploads a file (image or video) to the ComfyUI server.
+    ComfyUI's /upload/image endpoint can handle various file types.
+    """
     url = f"{APP_URL}/upload/image"
+    try:
+        with open(file_path, "rb") as f:
+            filename = os.path.basename(file_path)
+            # The key 'image' is used by ComfyUI's API for file uploads in general
+            files = {"image": (filename, f)}
+            response = requests.post(url, files=files)
+            response.raise_for_status() # Raises an exception for bad status codes
+            data = response.json()
+            # The 'name' is the filename ComfyUI uses internally
+            return data.get("name")
+    except Exception as e:
+        print(f"Error uploading file: {e}")
+        return None
 
-    with open(file_path, "rb") as f:
-        filename = os.path.basename(file_path)
-
-        files = {"image": (filename, f, "image/jpeg")}
-        response = requests.post(url, files=files)
-
-    if response.status_code == 200:
-        return response.json().get("name")
-    return None
-
-def upload_image(file_path):
-    url = f"{APP_URL}/upload/image"
-
-    with open(file_path, "rb") as f:
-        filename = os.path.basename(file_path)
-
-        files = {"video": (filename, f, "video/*")}
-        response = requests.post(url, files=files)
-
-    if response.status_code == 200:
-        return response.json().get("name")
-    return None
-    
-
-class ComfyClient:
-    def __init__(self):
-        self.app_url = APP_URL
-        self.ws_url = APP_URL.replace("http", "ws") + "/ws?clientId=api"
-
-    # ------------------------
-    # Upload Image to ComfyUI
-    # ------------------------
-    def upload_image(self, path):
-        files = {"image": open(path, "rb")}
-        response = requests.post(self.app_url + "/upload/image", files=files)
-        return response.json()
-
-    # ------------------------
-    # Submit Workflow Prompt
-    # ------------------------
-    def send_prompt(self, workflow):
-        res = requests.post(self.app_url + "/prompt", json=workflow)
-        return res.json()["prompt_id"]
-
-    # ------------------------
-    # Track Progress (WebSocket)
-    # ------------------------
-    async def track_progress(self, prompt_id, callback):
-        async with websockets.connect(self.ws_url) as ws:
-            async for msg in ws:
-                data = json.loads(msg)
-
-                if data.get("type") == "progress":
-                    v = data["data"]["value"]
-                    m = data["data"]["max"]
-                    percent = int((v / m) * 100)
-                    callback(percent)
-
-                if data.get("type") == "executed" and data["data"]["prompt_id"] == prompt_id:
-                    callback(100)
-                    break
-
-# -----------------------------
-# Build workflow
-# -----------------------------
-def create_workflow(image_name, prompt_text):
-    
-    return {
-        "13": {
-            "inputs": {"image": image_name},
-            "class_type": "ImageLoader",
-            "_meta": {"title": "Load Image Advanced"},
-        },
-
-        "14": {
-            "inputs": {
-                "text": prompt_text,
-                "model": "Qwen3-VL-4B-Instruct",
-                "quantization": "none",
-                "keep_model_loaded": False,
-                "temperature": 0.7,
-                "max_new_tokens": 2048,
-                "min_pixels": 200704,
-                "max_pixels": 1003520,
-                "seed": 616,
-                "attention": "eager",
-                "source_path": ["15", 0],
-            },
-            "class_type": "Qwen3_VQA",
-            "_meta": {"title": "Qwen3 VQA"},
-        },
-
-        "15": {
-            "inputs": {
-                "inputcount": 1,
-                "sample_fps": 1,
-                "max_frames": 2,
-                "use_total_frames": True,
-                "use_original_fps_as_sample_fps": True,
-                "Update inputs": None,
-                "path_1": ["13", 2],
-            },
-            "class_type": "MultiplePathsInput",
-            "_meta": {"title": "Multiple Paths Input"},
-        },
-
-        "17": {
-            "inputs": {"text": ["14", 0]},
-            "class_type": "DisplayText",
-            "_meta": {"title": "Display Text"},
-        },
-    }
-
-
-# -----------------------------
-# Submit workflow
-# -----------------------------
 def submit_workflow(workflow):
+    """Submits a workflow prompt to the ComfyUI server."""
     client_id = str(uuid.uuid4())
     payload = {"prompt": workflow, "client_id": client_id}
-
-    response = requests.post(f"{APP_URL}/prompt", json=payload)
-
-    if response.status_code != 200:
+    try:
+        response = requests.post(f"{APP_URL}/prompt", json=payload)
+        response.raise_for_status()
+        return response.json().get("prompt_id")
+    except Exception as e:
+        print(f"Error submitting workflow: {e}")
         return None
 
-    return response.json().get("prompt_id")
-
-
-# -----------------------------
-# Wait for result
-# -----------------------------
 def wait_for_result(prompt_id):
+    """Waits for the workflow execution to complete and retrieves the result."""
     while True:
         time.sleep(2)
-        response = requests.get(f"{APP_URL}/history/{prompt_id}")
+        try:
+            response = requests.get(f"{APP_URL}/history/{prompt_id}")
+            response.raise_for_status()
+            data = response.json()
 
-        if response.status_code != 200:
-            continue
+            if prompt_id not in data:
+                continue
 
-        data = response.json()
+            execution = data[prompt_id]
+            status = execution.get("status", {})
 
-        if prompt_id not in data:
-            continue
+            if status.get("completed"):
+                return execution
+            if "error" in status or status.get("success") is False:
+                print(f"Execution failed for prompt {prompt_id}")
+                return None
+        except Exception as e:
+            print(f"Error checking history: {e}")
+            time.sleep(5) # Wait longer on error
 
-        execution = data[prompt_id]
-
-        if execution.get("status", {}).get("completed"):
-            return execution
-
-        if "error" in execution.get("status", {}):
-            return None
-
-
-# -----------------------------
-# Extract output text
-# -----------------------------
 def extract_text(result_json):
+    """Extracts the output text from the result JSON."""
     try:
+        # The output text comes from the 'DisplayText' node, which is ID '17'
         return result_json["outputs"]["17"]["text"][0][0]
-    except:
+    except (KeyError, IndexError, TypeError) as e:
+        print(f"Error extracting text from result: {e}")
         return None
 
+def create_workflow_from_template(template_path, file_name, file_type, prompt_text):
+    """
+    Loads a workflow template from a JSON file and configures it for the specific job.
+    """
+    with open(template_path, 'r') as f:
+        workflow = json.load(f)
 
-# -----------------------------
-# Public function
-# -----------------------------
-def describe_image(file_path, prompt_text=None):
-    image_name = upload_image(file_path)
-    if not image_name:
+    # Set the user's prompt in the VQA node (14)
+    workflow["14"]["inputs"]["text"] = prompt_text
+
+    # The key is to correctly configure the MultiplePathsInput node (22)
+    # It will only have one input, either from the image loader or video loader.
+    workflow["22"]["inputs"]["inputcount"] = 1
+
+    if file_type == 'image':
+        # Use ImageLoader (node 13)
+        workflow["13"]["inputs"]["image"] = file_name
+        # Connect MultiplePathsInput (22) to the output of ImageLoader (13)
+        workflow["22"]["inputs"]["path_1"] = ["13", 2]
+        # Clean up the unused path input
+        if "path_2" in workflow["22"]["inputs"]:
+            del workflow["22"]["inputs"]["path_2"]
+
+    elif file_type == 'video':
+        # Use VideoLoader (node 18)
+        workflow["18"]["inputs"]["file"] = file_name
+        # Connect MultiplePathsInput (22) to the output of VideoLoader (18)
+        workflow["22"]["inputs"]["path_1"] = ["18", 1]
+        # Clean up the unused path input
+        if "path_2" in workflow["22"]["inputs"]:
+            del workflow["22"]["inputs"]["path_2"]
+    else:
+        raise ValueError("Unsupported file type specified.")
+
+    return workflow
+
+
+# --- Public function ---
+
+def describe_media(file_path, file_type, prompt_text=None):
+    """
+    Uploads an image or video, runs the VQA workflow, and returns the description.
+    
+    Args:
+        file_path (str): The local path to the image or video file.
+        file_type (str): Either 'image' or 'video'.
+        prompt_text (str, optional): The prompt for the VQA model.
+    """
+    # 1. Upload the media file to ComfyUI
+    uploaded_filename = upload_file(file_path)
+    if not uploaded_filename:
+        print("File upload failed.")
         return None
 
+    # 2. Use a default prompt if none is provided
     if not prompt_text:
-       prompt_text = "Describe this image in details."
+       prompt_text = "Describe this in detail. If it's a video, describe the sequence of events."
 
-    workflow = create_workflow(image_name, prompt_text)
-    prompt_id = submit_workflow(workflow)
-
-    if not prompt_id:
+    # 3. Create the workflow from the JSON template
+    try:
+        workflow = create_workflow_from_template(
+            template_path="Ivtop.json",
+            file_name=uploaded_filename,
+            file_type=file_type,
+            prompt_text=prompt_text
+        )
+    except (ValueError, FileNotFoundError) as e:
+        print(f"Error creating workflow: {e}")
         return None
+    
+    # 4. Submit the workflow
+    prompt_id = submit_workflow(workflow)
+    if not prompt_id:
+        print("Workflow submission failed.")
+        return None
+    print(f"Workflow submitted with prompt_id: {prompt_id}")
 
+    # 5. Wait for the result
     result = wait_for_result(prompt_id)
     if not result:
+        print("Failed to get result.")
         return None
 
+    # 6. Extract and return the text
     return extract_text(result)
