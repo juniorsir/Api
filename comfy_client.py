@@ -68,7 +68,7 @@ def wait_for_result(prompt_id):
     logging.info(f"Waiting for result for prompt ID: {prompt_id}")
     # Set a timeout to avoid waiting forever
     start_time = time.time()
-    timeout_seconds = 300 # 3 minutes
+    timeout_seconds = 900 # 3 minutes
 
     while time.time() - start_time < timeout_seconds:
         try:
